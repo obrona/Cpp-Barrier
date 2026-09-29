@@ -12,15 +12,16 @@ struct SingleBarrierNoLock {
     void arrive_and_wait(function<void()> f1 = [](){}, function<void()> f2 = [](){}) {
         raised.wait(true);
 
-        int c = cnt.fetch_add(1);
+        int c = cnt.fetch_add(1, std::memory_order_acq_rel);
         if (c == maxCnt - 1) {
             raised.store(true); // if we store flag first, the some thread can zoom past and join the barrier again
             flag.store(true);
+            flag.notify_all();
         }
         
-        while (!flag.load()); // cant use raised.wait(false) as notification can be lost 
+        flag.wait(false);
 
-        c = cnt.fetch_sub(1);
+        c = cnt.fetch_sub(1, std::memory_order_acq_rel);
         if (c == 1) {
             flag.store(false); // change flag to init value of false first 
             raised.store(false);
@@ -30,7 +31,7 @@ struct SingleBarrierNoLock {
 
 };
 
-int N = 5;
+int N = 10;
 SingleBarrierNoLock bar(N);
 
 vector<int> test(N, 0);
@@ -44,7 +45,7 @@ void f2() {
 }
 
 void f(int tid) {
-    for (int r = 0; r < 1000000; r++) {
+    for (int r = 0; r < 100000; r++) {
         test[(tid + r) % N]++; // each round, a thread modifies at a different index
         bar.arrive_and_wait(); // comment this out for a negative experiment
     }
